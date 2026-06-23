@@ -1,8 +1,27 @@
 import { createClient } from "@supabase/supabase-js";
-import { randomBytes } from "crypto";
-import { Bot, webhookCallback } from "grammy";
+import { Bot, webhookCallback, type Context } from "grammy";
 
-import { sendActivationCodeEmail } from "@/utils/email";
+import { approveApplication, rejectApplication } from "@/lib/gift-approval";
+
+// ---------------------------------------------------------------------------
+// Answering a callback query can fail if Telegram has already expired it
+// ("query is too old / query ID is invalid"). That happens when an update was
+// retried after a slow response: the action was already handled on an earlier
+// delivery, so the stale answer is harmless. We must NOT let it throw — an
+// unhandled throw makes the webhook return 500, which makes Telegram retry the
+// same update again, producing an endless 500 loop.
+// ---------------------------------------------------------------------------
+
+async function safeAnswerCallbackQuery(
+  ctx: Context,
+  options?: Parameters<Context["answerCallbackQuery"]>[0],
+) {
+  try {
+    await ctx.answerCallbackQuery(options);
+  } catch (err) {
+    console.warn("[telegram] answerCallbackQuery skipped (stale query):", err);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Supabase — created per request, never at module scope (Fluid compute risk).
@@ -16,10 +35,6 @@ function createServiceClient() {
   );
 }
 
-function periodLabel(months: number): string {
-  return `${months} ${months === 1 ? "month" : "months"}`;
-}
-
 // ---------------------------------------------------------------------------
 // Bot — in webhook mode it opens no long-lived TCP connection, so a single
 // module-scoped instance is safe and avoids re-parsing the token per request.
@@ -28,63 +43,65 @@ function periodLabel(months: number): string {
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
 
 // ---------------------------------------------------------------------------
-// /start — register the first user who messages the bot as THE admin approver.
-// admin_telegram_id is stored as text, so compare/store as strings throughout.
+// /start — record the sender as a *candidate* approver. The admin then promotes
+// one candidate to approver from the admin panel (telegram_config.admin_telegram_id).
+// We no longer auto-bind the first sender, so the admin controls who can approve.
 // ---------------------------------------------------------------------------
 
 bot.command("start", async (ctx) => {
   const supabase = createServiceClient();
-  const fromId = String(ctx.from!.id);
+  const from = ctx.from!;
+  const fromId = String(from.id);
 
-  const { data: config, error } = await supabase
+  // Upsert the candidate so the admin can pick them from a list.
+  await supabase.from("telegram_candidates").upsert(
+    {
+      telegram_id: fromId,
+      first_name: from.first_name ?? null,
+      last_name: from.last_name ?? null,
+      username: from.username ?? null,
+      last_seen: new Date().toISOString(),
+    },
+    { onConflict: "telegram_id" },
+  );
+
+  // Is an approver already chosen?
+  const { data: config } = await supabase
     .from("telegram_config")
-    .select("id, admin_telegram_id")
+    .select("admin_telegram_id")
     .eq("id", 1)
     .maybeSingle();
 
-  if (error || !config) {
-    await ctx.reply("Bot is not configured yet. Contact the site owner.");
-    return;
-  }
-
-  if (config.admin_telegram_id) {
+  if (config?.admin_telegram_id === fromId) {
     await ctx.reply(
-      config.admin_telegram_id === fromId
-        ? "You are already registered as the approving admin. ✅"
-        : "An admin is already registered for this bot.",
+      "You are the approving admin for this bot. ✅\n" +
+        "You'll receive gift applications here with Approve / Reject buttons.",
     );
     return;
   }
 
-  const { error: updateError } = await supabase
-    .from("telegram_config")
-    .update({ admin_telegram_id: fromId, updated_at: new Date().toISOString() })
-    .eq("id", config.id);
-
-  if (updateError) {
-    console.error("[start] failed to register admin:", updateError);
-    await ctx.reply("Something went wrong. Please try again.");
-    return;
-  }
-
   await ctx.reply(
-    "You are now registered as the approving admin. ✅\n" +
-      "You'll receive gift applications here with Approve / Reject buttons.",
+    "Thanks — your Telegram account has been registered.\n" +
+      "Ask the site admin to mark you as the approver in the admin panel, " +
+      "then you'll start receiving gift applications here.",
   );
 });
 
 // ---------------------------------------------------------------------------
-// Admin check — run before handling any approve/reject callback.
+// Admin check — only the chosen approver may act on buttons.
 // ---------------------------------------------------------------------------
 
-async function verifyAdmin(telegramUserId: number): Promise<boolean> {
+async function verifyApprover(telegramUserId: number): Promise<boolean> {
   const supabase = createServiceClient();
   const { data: config } = await supabase
     .from("telegram_config")
     .select("admin_telegram_id")
     .eq("id", 1)
     .maybeSingle();
-  return config?.admin_telegram_id === String(telegramUserId);
+  return (
+    !!config?.admin_telegram_id &&
+    config.admin_telegram_id === String(telegramUserId)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -94,76 +111,32 @@ async function verifyAdmin(telegramUserId: number): Promise<boolean> {
 bot.callbackQuery(/^approve_(.+)$/, async (ctx) => {
   const appId = ctx.match[1];
 
-  if (!(await verifyAdmin(ctx.from.id))) {
-    await ctx.answerCallbackQuery({ text: "Not authorized.", show_alert: true });
-    return;
-  }
-
-  const supabase = createServiceClient();
-
-  const { data: app, error: fetchError } = await supabase
-    .from("gift_applications")
-    .select("id, applicant_email, status, tariffs ( name, period_months )")
-    .eq("id", appId)
-    .maybeSingle();
-
-  if (fetchError || !app) {
-    await ctx.answerCallbackQuery({ text: "Application not found.", show_alert: true });
-    return;
-  }
-
-  if (app.status !== "pending") {
-    await ctx.answerCallbackQuery({
-      text: `Application is already ${app.status}.`,
+  if (!(await verifyApprover(ctx.from.id))) {
+    await safeAnswerCallbackQuery(ctx, {
+      text: "Not authorized — only the approver chosen by the admin can act.",
       show_alert: true,
     });
     return;
   }
 
-  const activationCode = randomBytes(16).toString("hex");
+  const fromId = String(ctx.from.id);
+  const result = await approveApplication(appId, {
+    telegramId: fromId,
+    label: `Telegram @${ctx.from.username ?? fromId}`,
+  });
 
-  const { error: updateError } = await supabase
-    .from("gift_applications")
-    .update({ status: "approved", activation_code: activationCode })
-    .eq("id", appId);
-
-  if (updateError) {
-    console.error("[approve] update failed:", updateError);
-    await ctx.answerCallbackQuery({ text: "Database error.", show_alert: true });
+  if (!result.ok) {
+    await safeAnswerCallbackQuery(ctx, { text: result.reason, show_alert: true });
     return;
   }
 
-  const tariff = app.tariffs as unknown as {
-    name: string;
-    period_months: number;
-  } | null;
-  const period = periodLabel(tariff?.period_months ?? 1);
-
-  // Deliver the activation code by e-mail. If SMTP fails the application stays
-  // approved (the admin can re-send) — we just record the failure.
-  let emailError: string | null = null;
-  try {
-    await sendActivationCodeEmail(app.applicant_email, activationCode, period);
-  } catch (err) {
-    emailError = err instanceof Error ? err.message : "Failed to send e-mail.";
-    console.error("[approve] e-mail failed:", emailError);
-  }
-
   const originalText = ctx.callbackQuery.message?.text ?? "Application";
-
   await Promise.all([
-    supabase.from("telegram_logs").insert({
-      application_id: appId,
-      status: emailError ? "approved_email_failed" : "approved",
-      error_message: emailError,
+    safeAnswerCallbackQuery(ctx, {
+      text: result.emailSent ? "Approved ✅" : "Approved, but e-mail failed.",
     }),
-
-    ctx.answerCallbackQuery({
-      text: emailError ? "Approved, but e-mail failed." : "Approved ✅",
-    }),
-
     ctx.editMessageText(
-      `${originalText}\n\n✅ Approved${emailError ? " (e-mail failed — code not sent)" : " — activation code e-mailed"}`,
+      `${originalText}\n\n✅ Approved${result.emailSent ? " — activation code e-mailed" : " (e-mail failed — code not sent)"}`,
       { reply_markup: { inline_keyboard: [] } },
     ),
   ]);
@@ -176,58 +149,43 @@ bot.callbackQuery(/^approve_(.+)$/, async (ctx) => {
 bot.callbackQuery(/^reject_(.+)$/, async (ctx) => {
   const appId = ctx.match[1];
 
-  if (!(await verifyAdmin(ctx.from.id))) {
-    await ctx.answerCallbackQuery({ text: "Not authorized.", show_alert: true });
-    return;
-  }
-
-  const supabase = createServiceClient();
-
-  const { data: app, error: fetchError } = await supabase
-    .from("gift_applications")
-    .select("id, status")
-    .eq("id", appId)
-    .maybeSingle();
-
-  if (fetchError || !app) {
-    await ctx.answerCallbackQuery({ text: "Application not found.", show_alert: true });
-    return;
-  }
-
-  if (app.status !== "pending") {
-    await ctx.answerCallbackQuery({
-      text: `Application is already ${app.status}.`,
+  if (!(await verifyApprover(ctx.from.id))) {
+    await safeAnswerCallbackQuery(ctx, {
+      text: "Not authorized — only the approver chosen by the admin can act.",
       show_alert: true,
     });
     return;
   }
 
-  const { error: updateError } = await supabase
-    .from("gift_applications")
-    .update({ status: "rejected" })
-    .eq("id", appId);
+  const fromId = String(ctx.from.id);
+  const result = await rejectApplication(appId, {
+    telegramId: fromId,
+    label: `Telegram @${ctx.from.username ?? fromId}`,
+  });
 
-  if (updateError) {
-    console.error("[reject] update failed:", updateError);
-    await ctx.answerCallbackQuery({ text: "Database error.", show_alert: true });
+  if (!result.ok) {
+    await safeAnswerCallbackQuery(ctx, { text: result.reason, show_alert: true });
     return;
   }
 
   const originalText = ctx.callbackQuery.message?.text ?? "Application";
-
   await Promise.all([
-    supabase.from("telegram_logs").insert({
-      application_id: appId,
-      status: "rejected",
-      error_message: null,
-    }),
-
-    ctx.answerCallbackQuery({ text: "Rejected ❌" }),
-
+    safeAnswerCallbackQuery(ctx, { text: "Rejected ❌" }),
     ctx.editMessageText(`${originalText}\n\n❌ Rejected`, {
       reply_markup: { inline_keyboard: [] },
     }),
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// Last-resort error boundary. Without a bot.catch handler, any throw inside a
+// handler propagates out of webhookCallback as an HTTP 500, and Telegram retries
+// the same update — which can snowball into a retry loop. Swallowing here means
+// the webhook always answers 200 and Telegram stops retrying.
+// ---------------------------------------------------------------------------
+
+bot.catch((err) => {
+  console.error("[telegram] unhandled handler error:", err.error);
 });
 
 // ---------------------------------------------------------------------------

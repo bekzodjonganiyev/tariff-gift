@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Send, Tag } from "lucide-react";
+import { Gift, History, Send, Tag } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -7,6 +7,15 @@ import { SiteHeader } from "@/components/site-header";
 import { CreateTariffForm } from "@/components/admin/create-tariff-form";
 import { TariffRow } from "@/components/admin/tariff-row";
 import { TelegramConfigForm } from "@/components/admin/telegram-config-form";
+import {
+  GiftApplications,
+  type AdminApplication,
+} from "@/components/admin/gift-applications";
+import {
+  TelegramApprover,
+  type TelegramCandidate,
+} from "@/components/admin/telegram-approver";
+import { TelegramLogs, type TelegramLog } from "@/components/admin/telegram-logs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Tariff } from "@/lib/types";
 
@@ -18,10 +27,16 @@ export default async function AdminPage() {
     ?.role;
   if (role !== "admin") redirect("/");
 
-  // Read with the service-role client so we can list hidden tariffs and the
-  // (RLS-protected) telegram_config secrets in one place.
+  // Read with the service-role client so we can list hidden tariffs, every
+  // gift application, the (RLS-protected) telegram secrets and the audit log.
   const admin = createAdminClient();
-  const [{ data: tariffsData }, { data: config }] = await Promise.all([
+  const [
+    { data: tariffsData },
+    { data: config },
+    { data: appsData },
+    { data: candidatesData },
+    { data: logsData },
+  ] = await Promise.all([
     admin
       .from("tariffs")
       .select("id, name, price, period_months, is_active, created_at")
@@ -31,10 +46,31 @@ export default async function AdminPage() {
       .select("bot_token, admin_telegram_id")
       .eq("id", 1)
       .maybeSingle(),
+    admin
+      .from("gift_applications")
+      .select(
+        "id, status, is_activated, applicant_email, created_at, tariffs ( name, period_months )",
+      )
+      .order("created_at", { ascending: false }),
+    admin
+      .from("telegram_candidates")
+      .select("telegram_id, first_name, last_name, username, last_seen")
+      .order("last_seen", { ascending: false }),
+    admin
+      .from("telegram_logs")
+      .select(
+        "id, application_id, action, actor_telegram_id, status, error_message, created_at",
+      )
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   const tariffs = (tariffsData ?? []) as Tariff[];
+  const applications = (appsData ?? []) as unknown as AdminApplication[];
+  const candidates = (candidatesData ?? []) as TelegramCandidate[];
+  const logs = (logsData ?? []) as TelegramLog[];
   const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || null;
+  const pendingCount = applications.filter((a) => a.status === "pending").length;
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -43,7 +79,8 @@ export default async function AdminPage() {
         <header>
           <h1 className="text-3xl font-bold tracking-tight">Admin</h1>
           <p className="mt-1 text-muted-foreground">
-            Manage tariffs and connect the Telegram approval bot.
+            Manage tariffs, review gift applications and connect the Telegram
+            approval bot.
           </p>
         </header>
 
@@ -70,15 +107,46 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Send className="size-5 text-primary" /> Telegram bot
+              <Gift className="size-5 text-primary" /> Gift applications
+              {pendingCount > 0 && (
+                <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                  {pendingCount} pending
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
+            <GiftApplications apps={applications} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Send className="size-5 text-primary" /> Telegram bot
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-8">
             <TelegramConfigForm
               hasToken={!!config?.bot_token}
               adminConnected={!!config?.admin_telegram_id}
               botUsername={botUsername}
             />
+            <TelegramApprover
+              candidates={candidates}
+              currentApproverId={config?.admin_telegram_id ?? null}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <History className="size-5 text-primary" /> Notification history
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TelegramLogs logs={logs} />
           </CardContent>
         </Card>
       </div>

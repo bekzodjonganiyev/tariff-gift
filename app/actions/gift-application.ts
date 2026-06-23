@@ -217,6 +217,7 @@ async function notifyAdmin(params: {
   // Audit the attempt. Best-effort: a logging failure must not break the flow.
   const { error: logError } = await admin.from("telegram_logs").insert({
     application_id: applicationId,
+    action: "notify",
     status: sent ? "sent" : "failed",
     error_message: detail || null,
   });

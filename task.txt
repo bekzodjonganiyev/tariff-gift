@@ -1,0 +1,69 @@
+Task Overview
+Project: Next.js + Supabase Tariff Gift Approval App
+Develop a small Next.js application where users sign in with Google, see tariff cards, apply for a gift for the selected tariff period, and access an internal success page after buying a tariff or activating the approved gift.
+Tariff cards must be created from the admin panel. Admin can create tariffs, set their name/price, and choose the tariff period from 1 to 12 months. The home page should display active tariff cards from the database.
+Admin can also connect a Telegram bot. When a user applies for a gift, the bot sends a message to the configured Telegram admin with Approve and Reject buttons.
+If approved, the system generates an activation code, sends it to the user's email using any free email SMTP, and the user can activate the gift for that tariff's configured period.
+Requirements:
+Framework & Libraries:
+Next.js
+Supabase (Auth + Database)
+Supabase Google OAuth
+Any free email SMTP
+Telegram Bot API
+
+Authentication:
+Use Supabase Auth with the following methods:
+Google OAuth sign in for regular users
+Email & Password sign in for admin users
+Logout
+
+Core Features: 
+User Flow:
+Home page shows active tariff cards created by admin
+Each tariff card has Apply for gift option
+User can sign in with Google
+User can select/buy a tariff (payment can be mocked)
+User can apply for a gift for the selected tariff period
+Gift card shows Applied while request is pending
+Approved user receives activation code by email
+User activates the gift with the code
+Success page is available only with active tariff or active gift
+Admin Panel:
+Admin logs in with email and password
+Admin creates tariff cards
+Admin selects tariff period from 1 to 12 months
+Admin can activate/deactivate tariff cards
+Admin views gift applications
+Admin can approve or reject gift applications
+Admin connects Telegram bot by saving bot token
+Admin marks Telegram user as approver after pressing Start on bot
+Admin can see Telegram notification history, including sent/failed status and approve/reject button actions.
+Gift Approval Rules:
+User cannot have more than one pending gift application
+If rejected, user can apply again
+If approved, activation code is generated and emailed
+Activation code can be used only once
+User cannot activate more than one gift
+Telegram Bot Integration:
+Admin saves bot token in admin panel
+Admin presses Start on the bot in Telegram
+Admin panel marks that Telegram user as approver
+When user applies, bot sends message to Telegram admin
+Message includes user info, tariff/gift info, Approve and Reject buttons
+Approve button approves gift and sends activation code
+Reject button rejects gift and lets user apply again
+Notification sent/failed status must be saved in audit log
+Notes:
+All regular user authentication must use Supabase Google OAuth
+Admin logs in using Supabase email/password authentication. The README must include a test admin email and password for review.
+Project must be runnable against a fresh Supabase project
+Business rules must be enforced server-side
+Use Supabase RLS or server-side authorization
+Telegram bot token must not be exposed to client-side code
+Telegram notifications and email attempts must be auditable
+Payment is mocked. No real payment integration is required, focus on tariff period/access logic
+Please provide test supabase credentials in README
+
+
+

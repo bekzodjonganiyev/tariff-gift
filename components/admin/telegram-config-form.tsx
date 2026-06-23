@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Check, ExternalLink, Loader2, X } from "lucide-react";
 
-import { resetTelegramAdmin, saveTelegramConfig } from "@/app/actions/admin";
+import { saveTelegramConfig } from "@/app/actions/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +22,6 @@ export function TelegramConfigForm({
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, startSave] = useTransition();
-  const [resetting, startReset] = useTransition();
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -38,27 +37,15 @@ export function TelegramConfigForm({
     });
   }
 
-  function handleReset() {
-    setError(null);
-    startReset(async () => {
-      try {
-        await resetTelegramAdmin();
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not reset.");
-      }
-    });
-  }
-
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <StatusPill ok={hasToken} label="Bot token" okText="Saved" badText="Missing" />
         <StatusPill
           ok={adminConnected}
-          label="Admin chat"
+          label="Approver"
           okText="Connected"
-          badText="Not connected"
+          badText="Not chosen"
         />
       </div>
 
@@ -93,38 +80,13 @@ export function TelegramConfigForm({
         </p>
       </form>
 
-      <div className="rounded-lg border bg-muted/30 p-4 text-sm">
-        <p className="font-medium">Connect the approving admin</p>
-        <p className="mt-1 text-muted-foreground">
-          Open the bot and send <code>/start</code>. The first person to do so
-          becomes the approver and will receive applications with Approve /
-          Reject buttons.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {botUsername && (
-            <Button asChild variant="outline" size="sm">
-              <a
-                href={`https://t.me/${botUsername}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open bot <ExternalLink className="size-3.5" />
-              </a>
-            </Button>
-          )}
-          {adminConnected && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleReset}
-              disabled={resetting}
-            >
-              {resetting ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              Reset admin
-            </Button>
-          )}
-        </div>
-      </div>
+      {botUsername && (
+        <Button asChild variant="outline" size="sm">
+          <a href={`https://t.me/${botUsername}`} target="_blank" rel="noreferrer">
+            Open bot <ExternalLink className="size-3.5" />
+          </a>
+        </Button>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>

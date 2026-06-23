@@ -1,112 +1,138 @@
-<a href="https://demo-nextjs-with-supabase.vercel.app/">
-  <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
-  <h1 align="center">Next.js and Supabase Starter Kit</h1>
-</a>
+# Tariff Gift Approval App
 
-<p align="center">
- The fastest way to build apps with Next.js and Supabase
-</p>
+Next.js (App Router) + Supabase app where users sign in with Google, browse
+tariff cards, mock-buy a tariff, and apply for a gift. An admin reviews
+applications — from the **web admin panel** or via a **Telegram bot** with
+Approve / Reject buttons. On approval the app generates a single-use activation
+code and e-mails it (SMTP). The user activates the gift for the tariff's period
+and reaches the gated success page.
 
-<p align="center">
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#demo"><strong>Demo</strong></a> ·
-  <a href="#deploy-to-vercel"><strong>Deploy to Vercel</strong></a> ·
-  <a href="#clone-and-run-locally"><strong>Clone and run locally</strong></a> ·
-  <a href="#feedback-and-issues"><strong>Feedback and issues</strong></a>
-  <a href="#more-supabase-examples"><strong>More Examples</strong></a>
-</p>
-<br/>
+## Test credentials (for review)
 
-## Features
+| Role | Method | Email | Password |
+|------|--------|-------|----------|
+| **Admin** | Email & password | `admin@gmail.com` | `Admin123!` |
+| Regular user | Google OAuth | use any Google account | — |
 
-- Works across the entire [Next.js](https://nextjs.org) stack
-  - App Router
-  - Pages Router
-  - Proxy
-  - Client
-  - Server
-  - It just works!
-- supabase-ssr. A package to configure Supabase Auth to use cookies
-- Password-based authentication block installed via the [Supabase UI Library](https://supabase.com/ui/docs/nextjs/password-based-auth)
-- Styling with [Tailwind CSS](https://tailwindcss.com)
-- Components with [shadcn/ui](https://ui.shadcn.com/)
-- Optional deployment with [Supabase Vercel Integration and Vercel deploy](#deploy-your-own)
-  - Environment variables automatically assigned to Vercel project
+> The admin role lives in the JWT's `app_metadata.role` (server-only writable),
+> never in `user_metadata`. After changing the role you must sign out and back
+> in so a fresh JWT carries it.
 
-## Demo
+## Stack
 
-You can view a fully working demo at [demo-nextjs-with-supabase.vercel.app](https://demo-nextjs-with-supabase.vercel.app/).
+- **Next.js** App Router, Server Actions, Route Handlers
+- **Supabase** Auth (Google OAuth + email/password) + Postgres + RLS
+- **Telegram Bot API** (via `grammy`) for approve/reject
+- **nodemailer** + any free SMTP (Brevo, Gmail app password, Mailtrap…)
+- **Tailwind CSS** + shadcn/ui
 
-## Deploy to Vercel
+## Commands
 
-Vercel deployment will guide you through creating a Supabase account and project.
-
-After installation of the Supabase integration, all relevant environment variables will be assigned to the project so the deployment is fully functioning.
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&project-name=nextjs-with-supabase&repository-name=nextjs-with-supabase&demo-title=nextjs-with-supabase&demo-description=This+starter+configures+Supabase+Auth+to+use+cookies%2C+making+the+user%27s+session+available+throughout+the+entire+Next.js+app+-+Client+Components%2C+Server+Components%2C+Route+Handlers%2C+Server+Actions+and+Middleware.&demo-url=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2F&external-id=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&demo-image=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2Fopengraph-image.png)
-
-The above will also clone the Starter kit to your GitHub, you can clone that locally and develop locally.
-
-If you wish to just develop locally and not deploy to Vercel, [follow the steps below](#clone-and-run-locally).
-
-## Clone and run locally
-
-1. You'll first need a Supabase project which can be made [via the Supabase dashboard](https://database.new)
-
-2. Create a Next.js app using the Supabase Starter template npx command
-
-   ```bash
-   npx create-next-app --example with-supabase with-supabase-app
-   ```
-
-   ```bash
-   yarn create next-app --example with-supabase with-supabase-app
-   ```
-
-   ```bash
-   pnpm create next-app --example with-supabase with-supabase-app
-   ```
-
-3. Use `cd` to change into the app's directory
-
-   ```bash
-   cd with-supabase-app
-   ```
-
-4. Rename `.env.example` to `.env.local` and update the following:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=[INSERT SUPABASE PROJECT URL]
-NEXT_PUBLIC_SUPABASE_ANON_KEY=[INSERT SUPABASE PROJECT API PUBLISHABLE OR ANON KEY]
+```bash
+npm run dev            # dev server on localhost:3000
+npm run build          # production build
+npm run lint           # ESLint
+npm run webhook:set <https-url>   # register the Telegram webhook
+npm run webhook:info              # inspect webhook status
+npm run webhook:delete            # remove the webhook
 ```
 
-> [!NOTE]
-> This example uses `NEXT_PUBLIC_SUPABASE_ANON_KEY`, which refers to Supabase's new **publishable** key format.
-> Both legacy **anon** keys and new **publishable** keys can be used with this variable name during the transition period. Supabase's dashboard may show `NEXT_PUBLIC_SUPABASE_ANON_KEY`; its value can be used in this example.
-> See the [full announcement](https://github.com/orgs/supabase/discussions/29260) for more information.
+## Setup against a fresh Supabase project
 
-Both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` can be found in [your Supabase project's API settings](https://supabase.com/dashboard/project/_?showConnect=true)
+### 1. Environment
 
-5. You can now run the Next.js local development server:
+Copy your Supabase keys into `.env.local`:
 
-   ```bash
-   npm run dev
-   ```
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...            # server-only, bypasses RLS
 
-   The starter kit should now be running on [localhost:3000](http://localhost:3000/).
+# Telegram
+TELEGRAM_BOT_TOKEN=...                   # from @BotFather
+NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...    # bot @username (no @)
+TELEGRAM_WEBHOOK_SECRET=...              # openssl rand -hex 32
 
-6. This template comes with the default shadcn/ui style initialized. If you instead want other ui.shadcn styles, delete `components.json` and [re-install shadcn/ui](https://ui.shadcn.com/docs/installation/next)
+# SMTP (activation e-mails)
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASSWORD=...
+SMTP_FROM=you@verified-sender.com        # MUST be a verified sender (see §4)
+```
 
-> Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
+### 2. Database
 
-## Feedback and issues
+Run **both** migration files in the Supabase Dashboard → SQL Editor (in order).
+They are idempotent — safe to re-run:
 
-Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
+1. `supabase/migrations/0001_tariff_gift_app.sql` — tables, RLS, triggers
+2. `supabase/migrations/0002_telegram_candidates.sql` — Telegram approver
+   selection + audit-log columns
 
-## More Supabase examples
+### 3. Make an admin
 
-- [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)
-- [Cookie-based Auth and the Next.js 13 App Router (free course)](https://youtube.com/playlist?list=PL5S4mPUpp4OtMhpnp93EFSo42iQ40XjbF)
-- [Supabase Auth and the Next.js App Router](https://github.com/supabase/supabase/tree/master/examples/auth/nextjs)
-# tariff-gift
-# tariff-gift
+After signing up the admin account with email + password:
+
+```sql
+update auth.users
+set raw_app_meta_data = raw_app_meta_data || '{"role":"admin"}'
+where email = 'admin@gmail.com';
+```
+
+Sign out and back in, then open `/admin`.
+
+### 4. SMTP / activation e-mails
+
+`SMTP_FROM` **must be a sender verified in your SMTP provider.** Brevo (and most
+providers) accept mail from an unverified sender over SMTP — returning
+`250 queued` — and then silently drop it, so the activation e-mail never
+arrives. In Brevo: **Senders, Domains & Dedicated IPs → Senders → add & verify**
+the address you put in `SMTP_FROM`.
+
+### 5. Telegram bot
+
+1. Create a bot with [@BotFather](https://t.me/BotFather); put the token in
+   `.env.local` (`TELEGRAM_BOT_TOKEN`) and in `/admin → Telegram bot`.
+2. Register the webhook: `npm run webhook:set https://<public-url>`
+   (use an ngrok URL in dev).
+3. The approver opens the bot and sends `/start`. They appear under
+   **Telegram bot → Approver** in `/admin`.
+4. The admin clicks **Make approver** to choose exactly who can act on
+   Approve / Reject. (No one is auto-bound — the admin is in control.)
+
+## How it works
+
+### Auth & route protection
+
+`proxy.ts` runs `lib/supabase/proxy.ts:updateSession` on every request:
+default-deny — only `/`, `/auth/*` and `/api/telegram/*` are public; everything
+else needs a session; `/admin` additionally needs `app_metadata.role === 'admin'`.
+
+### Business rules (enforced server-side)
+
+- At most one **pending** application per user (app check + partial unique index).
+- Rejected users can re-apply.
+- Approval generates a **single-use** activation code, e-mailed to the user.
+- A gift can be activated only once; activation sets `expires_at` from the
+  tariff's `period_months`.
+- The `/success` and `/protected` pages require an active session; success
+  states are reached only after a purchase or activation.
+
+### Telegram approval flow
+
+User applies → admin approver gets a Telegram message (user + tariff + period)
+with Approve / Reject buttons → **Approve** generates a code + e-mails it,
+**Reject** lets the user apply again. The same actions are available in the web
+admin panel. Every notification and button action is recorded in `telegram_logs`
+(sent / failed / approved / rejected, with the actor) and shown under
+**Notification history**.
+
+### Security
+
+- `SUPABASE_SERVICE_ROLE_KEY` and `TELEGRAM_BOT_TOKEN` are server-only — never
+  shipped to the client.
+- `telegram_config`, `telegram_candidates` and `telegram_logs` have RLS enabled
+  with **no policies**, so only the service-role key can touch them.
+- The webhook validates Telegram's secret-token header.
+- Authorization always reads the verified JWT, never user-editable metadata.
