@@ -41,15 +41,30 @@ export function SignUpForm({
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/protected`,
-        },
-      });
+      // No e-mail confirmation step — the account is usable immediately and
+      // the user signs in with the email + password they just chose.
+      const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
-      router.push("/auth/sign-up-success");
+
+      // Supabase hides "email already registered" behind a fake user with no
+      // identities (enumeration protection). This is how a Google-only address
+      // reacts to an admin email sign-up attempt — surface a clear message.
+      if (data.user && data.user.identities?.length === 0) {
+        setError("This email is already registered. Please log in instead.");
+        return;
+      }
+
+      // With confirmation disabled, sign-up returns a live session whose JWT
+      // already carries the role. The first three e-mail users are admins.
+      const role = (data.user?.app_metadata as { role?: string } | undefined)
+        ?.role;
+      if (data.session) {
+        router.push(role === "admin" ? "/admin" : "/protected");
+        router.refresh();
+      } else {
+        // Project still has e-mail confirmation on — fall back to the old flow.
+        router.push("/auth/sign-up-success");
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {

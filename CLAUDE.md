@@ -60,7 +60,7 @@ The role lands in the JWT on the user's next token refresh (not instantly).
 
 All auth routes live under `app/auth/`:
 - `/auth/login` — password login + "Continue with Google"
-- `/auth/sign-up` — registration + "Continue with Google" (redirects to `/auth/sign-up-success` after email signup)
+- `/auth/sign-up` — registration + "Continue with Google". Email confirmation is **off** (dashboard + `0003` auto-confirm), so email sign-up returns a live session and routes straight into the app (`/admin` for admins, else `/protected`); the `/auth/sign-up-success` "check your email" page is only a fallback if confirmation gets re-enabled. The **first three email/password sign-ups become admins** via the `bootstrap_admin_on_signup` trigger (migration `0003`) — role written to `app_metadata.role`. Google/OAuth users are always regular users.
 - `/auth/forgot-password` — sends reset email
 - `/auth/update-password` — handles password reset
 - `/auth/confirm` — email OTP verification route handler (verifies token, redirects to `next` param or `/`)

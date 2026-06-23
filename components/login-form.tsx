@@ -34,13 +34,16 @@ export function LoginForm({
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       if (error) throw error;
-      // Update this route to redirect to an authenticated route. The user already has an active session.
-      router.push("/protected");
+      // Send admins straight to the admin panel, everyone else to the app.
+      const role = (data.user?.app_metadata as { role?: string } | undefined)
+        ?.role;
+      router.push(role === "admin" ? "/admin" : "/protected");
+      router.refresh();
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
