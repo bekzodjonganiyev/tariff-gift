@@ -23,6 +23,16 @@ async function safeAnswerCallbackQuery(
   }
 }
 
+// Editing the original message can fail ("message is not modified", message too
+// old). Never let it throw — the decision is already persisted in the database.
+async function safeEditMessageText(ctx: Context, text: string) {
+  try {
+    await ctx.editMessageText(text, { reply_markup: { inline_keyboard: [] } });
+  } catch (err) {
+    console.warn("[telegram] editMessageText skipped:", err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Supabase — created per request, never at module scope (Fluid compute risk).
 // ---------------------------------------------------------------------------
@@ -119,27 +129,23 @@ bot.callbackQuery(/^approve_(.+)$/, async (ctx) => {
     return;
   }
 
+  // Stop the button's loading spinner IMMEDIATELY. The approval below sends an
+  // e-mail, which can take seconds — or time out on hosts that firewall SMTP.
+  // We must never keep Telegram (and the button) waiting on that.
+  await safeAnswerCallbackQuery(ctx);
+
   const fromId = String(ctx.from.id);
   const result = await approveApplication(appId, {
     telegramId: fromId,
     label: `Telegram @${ctx.from.username ?? fromId}`,
   });
 
-  if (!result.ok) {
-    await safeAnswerCallbackQuery(ctx, { text: result.reason, show_alert: true });
-    return;
-  }
-
   const originalText = ctx.callbackQuery.message?.text ?? "Application";
-  await Promise.all([
-    safeAnswerCallbackQuery(ctx, {
-      text: result.emailSent ? "Approved ✅" : "Approved, but e-mail failed.",
-    }),
-    ctx.editMessageText(
-      `${originalText}\n\n✅ Approved${result.emailSent ? " — activation code e-mailed" : " (e-mail failed — code not sent)"}`,
-      { reply_markup: { inline_keyboard: [] } },
-    ),
-  ]);
+  const note = !result.ok
+    ? `ℹ️ ${result.reason}`
+    : `✅ Approved${result.emailSent ? " — activation code e-mailed" : " (e-mail failed — code not sent)"}`;
+
+  await safeEditMessageText(ctx, `${originalText}\n\n${note}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -157,24 +163,18 @@ bot.callbackQuery(/^reject_(.+)$/, async (ctx) => {
     return;
   }
 
+  await safeAnswerCallbackQuery(ctx);
+
   const fromId = String(ctx.from.id);
   const result = await rejectApplication(appId, {
     telegramId: fromId,
     label: `Telegram @${ctx.from.username ?? fromId}`,
   });
 
-  if (!result.ok) {
-    await safeAnswerCallbackQuery(ctx, { text: result.reason, show_alert: true });
-    return;
-  }
-
   const originalText = ctx.callbackQuery.message?.text ?? "Application";
-  await Promise.all([
-    safeAnswerCallbackQuery(ctx, { text: "Rejected ❌" }),
-    ctx.editMessageText(`${originalText}\n\n❌ Rejected`, {
-      reply_markup: { inline_keyboard: [] },
-    }),
-  ]);
+  const note = !result.ok ? `ℹ️ ${result.reason}` : "❌ Rejected";
+
+  await safeEditMessageText(ctx, `${originalText}\n\n${note}`);
 });
 
 // ---------------------------------------------------------------------------

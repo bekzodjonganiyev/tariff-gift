@@ -37,6 +37,12 @@ function getTransporter(): Transporter {
     // 465 is implicit TLS; 587/25 upgrade via STARTTLS.
     secure: port === 465,
     auth: { user, pass },
+    // Fail fast instead of hanging forever. On many VPS hosts the outbound SMTP
+    // port is firewalled — without these the connection blocks until the OS TCP
+    // timeout (minutes), which freezes the Telegram Approve button.
+    connectionTimeout: 10_000, // TCP connect
+    greetingTimeout: 10_000, // wait for server 220 greeting
+    socketTimeout: 20_000, // inactivity once connected
   });
 
   return transporter;
