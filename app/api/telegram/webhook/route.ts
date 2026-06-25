@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { Bot, webhookCallback, type Context } from "grammy";
+import { after } from "next/server";
 
 import { approveApplication, rejectApplication } from "@/lib/gift-approval";
 
@@ -46,8 +47,10 @@ async function safeEditMessageText(ctx: Context, text: string) {
 // ---------------------------------------------------------------------------
 
 function runDetached(label: string, work: () => Promise<void>): void {
-  void work().catch((err) => {
-    console.error(`[telegram] detached task "${label}" failed:`, err);
+  after(() => {
+    return work().catch((err) => {
+      console.error(`[telegram] detached task "${label}" failed:`, err);
+    });
   });
 }
 
