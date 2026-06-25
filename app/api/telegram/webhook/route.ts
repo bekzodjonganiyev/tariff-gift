@@ -34,6 +34,24 @@ async function safeEditMessageText(ctx: Context, text: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Fire-and-forget. grammy's webhookCallback does NOT return HTTP 200 to
+// Telegram until the handler resolves — so awaiting the e-mail send (up to
+// ~20s on a firewalled SMTP host) holds the webhook response open. Telegram
+// then treats the delivery as failed and RETRIES the same update, so the
+// backlog (pending_update_count) grows and the button appears to "freeze".
+//
+// This server runs as a single long-lived PM2 process (`next start`), so work
+// detached from the request keeps running after we answer the webhook. We move
+// the slow approve/reject work here and return 200 immediately.
+// ---------------------------------------------------------------------------
+
+function runDetached(label: string, work: () => Promise<void>): void {
+  void work().catch((err) => {
+    console.error(`[telegram] detached task "${label}" failed:`, err);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Supabase — created per request, never at module scope (Fluid compute risk).
 // ---------------------------------------------------------------------------
 
@@ -135,17 +153,22 @@ bot.callbackQuery(/^approve_(.+)$/, async (ctx) => {
   await safeAnswerCallbackQuery(ctx);
 
   const fromId = String(ctx.from.id);
-  const result = await approveApplication(appId, {
-    telegramId: fromId,
-    label: `Telegram @${ctx.from.username ?? fromId}`,
-  });
-
   const originalText = ctx.callbackQuery.message?.text ?? "Application";
-  const note = !result.ok
-    ? `ℹ️ ${result.reason}`
-    : `✅ Approved${result.emailSent ? " — activation code e-mailed" : " (e-mail failed — code not sent)"}`;
 
-  await safeEditMessageText(ctx, `${originalText}\n\n${note}`);
+  // Detach the DB update + e-mail send so the webhook returns 200 right away.
+  // Otherwise Telegram waits for SMTP and retries the update on timeout.
+  runDetached(`approve_${appId}`, async () => {
+    const result = await approveApplication(appId, {
+      telegramId: fromId,
+      label: `Telegram @${ctx.from.username ?? fromId}`,
+    });
+
+    const note = !result.ok
+      ? `ℹ️ ${result.reason}`
+      : `✅ Approved${result.emailSent ? " — activation code e-mailed" : " (e-mail failed — code not sent)"}`;
+
+    await safeEditMessageText(ctx, `${originalText}\n\n${note}`);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -166,15 +189,18 @@ bot.callbackQuery(/^reject_(.+)$/, async (ctx) => {
   await safeAnswerCallbackQuery(ctx);
 
   const fromId = String(ctx.from.id);
-  const result = await rejectApplication(appId, {
-    telegramId: fromId,
-    label: `Telegram @${ctx.from.username ?? fromId}`,
-  });
-
   const originalText = ctx.callbackQuery.message?.text ?? "Application";
-  const note = !result.ok ? `ℹ️ ${result.reason}` : "❌ Rejected";
 
-  await safeEditMessageText(ctx, `${originalText}\n\n${note}`);
+  runDetached(`reject_${appId}`, async () => {
+    const result = await rejectApplication(appId, {
+      telegramId: fromId,
+      label: `Telegram @${ctx.from.username ?? fromId}`,
+    });
+
+    const note = !result.ok ? `ℹ️ ${result.reason}` : "❌ Rejected";
+
+    await safeEditMessageText(ctx, `${originalText}\n\n${note}`);
+  });
 });
 
 // ---------------------------------------------------------------------------

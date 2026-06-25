@@ -69,6 +69,9 @@ const webhookUrl = url.replace(/\/$/, "") + WEBHOOK_PATH;
 
 const body = new URLSearchParams({ url: webhookUrl });
 if (SECRET) body.set("secret_token", SECRET);
+// Eski, timeout tufayli to'planib qolgan update'larni tozalab yuboramiz —
+// aks holda webhook qayta o'rnatilganda ular qaytadan yetkaziladi.
+body.set("drop_pending_updates", "true");
 
 const res = await fetch(api("setWebhook"), {
   method: "POST",

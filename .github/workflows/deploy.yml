@@ -1,0 +1,66 @@
+name: CI & Deploy
+
+on:
+  push:
+    branches: [main]
+  # Allow manual runs from the Actions tab.
+  workflow_dispatch:
+
+# A newer push to main supersedes an in-flight run — never deploy stale code.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI — lint + production build. Gates the deploy so broken code never ships.
+  # ---------------------------------------------------------------------------
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        # Placeholder public env vars so `next build` can validate compilation.
+        # The real values live in .env.local on the VPS, which rebuilds on deploy.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Deploy — SSH into the VPS and run the same flow you do by hand.
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    # Don't deploy on manual CI-only re-runs of other branches; main only.
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            set -euo pipefail
+            cd /var/www/tariff-gift
+            git fetch --all
+            git reset --hard origin/main
+            npm ci
+            npm run build
+            pm2 restart tariff-gift --update-env
+            pm2 save
