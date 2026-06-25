@@ -35,15 +35,15 @@ async function safeEditMessageText(ctx: Context, text: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Fire-and-forget. grammy's webhookCallback does NOT return HTTP 200 to
-// Telegram until the handler resolves — so awaiting the e-mail send (up to
-// ~20s on a firewalled SMTP host) holds the webhook response open. Telegram
-// then treats the delivery as failed and RETRIES the same update, so the
-// backlog (pending_update_count) grows and the button appears to "freeze".
+// Run work AFTER the webhook response is sent. The e-mail send (up to ~20s on a
+// firewalled SMTP host) must not delay the HTTP 200 — otherwise Telegram treats
+// the delivery as timed out, RETRIES the same update, the backlog
+// (pending_update_count) grows, and the button appears to "freeze".
 //
-// This server runs as a single long-lived PM2 process (`next start`), so work
-// detached from the request keeps running after we answer the webhook. We move
-// the slow approve/reject work here and return 200 immediately.
+// `after()` is the correct Next.js primitive for this: it flushes the response
+// first, then runs the callback in the background. Unlike a bare `void work()`,
+// it works across runtimes — it keeps a serverless/edge instance alive long
+// enough to finish, instead of the work being frozen/dropped after the response.
 // ---------------------------------------------------------------------------
 
 function runDetached(label: string, work: () => Promise<void>): void {
