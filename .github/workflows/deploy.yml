@@ -32,11 +32,15 @@ jobs:
         run: npm run lint
 
       - name: Build
-        # Placeholder public env vars so `next build` can validate compilation.
-        # The real values live in .env.local on the VPS, which rebuilds on deploy.
+        # Placeholder env vars so `next build` can validate compilation. The real
+        # values live in .env.local on the VPS, which rebuilds on deploy.
+        # TELEGRAM_BOT_TOKEN must be non-empty: the webhook route constructs the
+        # grammy Bot at module scope, which Next evaluates while collecting page
+        # data. No network call happens at build time, so a dummy token is safe.
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          TELEGRAM_BOT_TOKEN: "123456:ci-placeholder-token"
         run: npm run build
 
   # ---------------------------------------------------------------------------
