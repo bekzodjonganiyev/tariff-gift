@@ -61,6 +61,11 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -euo pipefail
+            # Non-interactive SSH shells skip ~/.bashrc, so nvm's node/npm/pm2
+            # aren't on PATH. Load nvm explicitly before anything else.
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            nvm use --lts >/dev/null || nvm use node
             cd /var/www/tariff-gift
             git fetch --all
             git reset --hard origin/main
